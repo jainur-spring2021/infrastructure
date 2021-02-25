@@ -1,6 +1,9 @@
 # Local .terraform directories
 **/.terraform/*
 
+# .lock file (created/updated automatically by terraform init)
+.terraform.lock.hcl
+
 # .tfstate files
 *.tfstate
 *.tfstate.*
