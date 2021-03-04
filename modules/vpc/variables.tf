@@ -26,4 +26,27 @@ variable "aws_route_gateway_destination_cidr_block"{
   default = "0.0.0.0/0"
 }
 
+variable "aws_s3_bucket_name"{
+  default = "webapp.urvashi.jain"
+}
+
+variable "aws_db_identifier"{
+  default = "csye6225"
+}
+
+variable "aws_db_password"{
+  default = "Password123"
+}
+
+variable "aws_ami_owner"{
+  default = "655716329164"
+}
+
+variable "aws_access_key_id"{
+
+}
+
+variable "aws_secret_key_id"{
+
+}
 
