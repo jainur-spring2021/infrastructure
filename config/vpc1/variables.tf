@@ -26,4 +26,12 @@ variable "aws_route_gateway_destination_cidr_block"{
   default = "0.0.0.0/0"
 }
 
+variable "aws_access_key_id"{
+
+}
+
+variable "aws_secret_key_id"{
+
+}
+
 
