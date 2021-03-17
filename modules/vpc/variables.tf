@@ -42,11 +42,3 @@ variable "aws_ami_owner"{
   default = "655716329164"
 }
 
-variable "aws_access_key_id"{
-
-}
-
-variable "aws_secret_key_id"{
-
-}
-
