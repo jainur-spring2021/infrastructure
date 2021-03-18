@@ -215,8 +215,8 @@ resource "aws_iam_policy" "IAM_policy_CodeDeploy_EC2_S3" {
                 "s3:ListBucket"
             ],
             "Resource": [
-                "arn:aws:s3:::/*",
-                "arn:aws:s3:::"
+                "arn:aws:s3:::codedeploy.api/*",
+                "arn:aws:s3:::codedeploy.api"
             ]
         }
     ]
@@ -239,8 +239,8 @@ resource "aws_iam_policy" "IAM_policy_GH_Upload_To_S3" {
                 "s3:ListBucket"
             ],
             "Resource": [
-                "arn:aws:s3:::codedeploy.s3.bucket/*",
-                "arn:aws:s3:::webapp.codedeploy.s3.bucket"
+                "arn:aws:s3:::codedeploy.app/*",
+                "arn:aws:s3:::codedeploy.app"
             ]
         }
     ]
@@ -357,25 +357,8 @@ resource "aws_iam_role_policy_attachment" "IAM_policy_attachment" {
   policy_arn = aws_iam_policy.IAM_policy.arn
 }
 
-resource "aws_iam_role" "Code_Deploy_EC2_Service_Role" {
-  name = "CodeDeployEC2ServiceRole"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Sid    = ""
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      },
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "Code_deploy_role_ec2_policy_attachment" {
-  role       = aws_iam_role.Code_Deploy_EC2_Service_Role.name
+resource "aws_iam_role_policy_attachment" "IAM_policy_attachment1" {
+  role       = aws_iam_role.IAM_role.name
   policy_arn = aws_iam_policy.IAM_policy_CodeDeploy_EC2_S3.arn
 }
 
@@ -399,25 +382,6 @@ resource "aws_iam_role" "Code_Deploy_Service_Role" {
 resource "aws_iam_role_policy_attachment" "Code_deploy_role_service_policy_attachment" {
   role       = aws_iam_role.Code_Deploy_Service_Role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
-}
-
-resource "aws_iam_user" "ghactions" {
-  name = "ghactions"
-}
-
-resource "aws_iam_user_policy_attachment" "user_policy_attachment1" {
-  user       = aws_iam_user.ghactions.name
-  policy_arn = aws_iam_policy.IAM_policy_gh_ec2_ami.arn
-}
-
-resource "aws_iam_user_policy_attachment" "user_policy_attachment2" {
-  user       = aws_iam_user.ghactions.name
-  policy_arn = aws_iam_policy.IAM_policy_GH_Code_Deploy.arn
-}
-
-resource "aws_iam_user_policy_attachment" "user_policy_attachment3" {
-  user       = aws_iam_user.ghactions.name
-  policy_arn = aws_iam_policy.IAM_policy_GH_Upload_To_S3.arn
 }
 
 data "aws_ami" "ami" {
