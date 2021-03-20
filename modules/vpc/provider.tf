@@ -192,8 +192,8 @@ resource "aws_iam_policy" "IAM_policy" {
                 "s3:GetObjectVersion"
             ],
             "Resource": [
-                "arn:aws:s3:::webapp.urvashi.jain/*",
-                "arn:aws:s3:::webapp.urvashi.jain"
+                "arn:aws:s3:::${aws_s3_bucket.s3-csye-6225.bucket}/*",
+                "arn:aws:s3:::${aws_s3_bucket.s3-csye-6225.bucket}"
             ]
         }
     ]
@@ -215,8 +215,8 @@ resource "aws_iam_policy" "IAM_policy_CodeDeploy_EC2_S3" {
                 "s3:ListBucket"
             ],
             "Resource": [
-                "arn:aws:s3:::codedeploy.api/*",
-                "arn:aws:s3:::codedeploy.api"
+                "arn:aws:s3:::${var.code_deploy_S3_bucket}/*",
+                "arn:aws:s3:::${var.code_deploy_S3_bucket}"
             ]
         }
     ]
@@ -239,8 +239,8 @@ resource "aws_iam_policy" "IAM_policy_GH_Upload_To_S3" {
                 "s3:ListBucket"
             ],
             "Resource": [
-                "arn:aws:s3:::codedeploy.app/*",
-                "arn:aws:s3:::codedeploy.app"
+                "arn:aws:s3:::${var.code_deploy_S3_bucket}/*",
+                "arn:aws:s3:::${var.code_deploy_S3_bucket}"
             ]
         }
     ]
@@ -307,7 +307,7 @@ resource "aws_iam_policy" "IAM_policy_GH_Code_Deploy" {
           "codedeploy:GetApplicationRevision"
         ],
         "Resource": [
-          "arn:aws:codedeploy:us-east-1:655716329164:application:csye6225-webapp"
+          "arn:aws:codedeploy:us-east-1:${var.acc_id}:application:csye6225-webapp"
         ]
       },
       {
@@ -326,9 +326,9 @@ resource "aws_iam_policy" "IAM_policy_GH_Code_Deploy" {
           "codedeploy:GetDeploymentConfig"
         ],
         "Resource": [
-          "arn:aws:codedeploy:us-east-1:655716329164:deploymentconfig:CodeDeployDefault.OneAtATime",
-          "arn:aws:codedeploy:us-east-1:655716329164:deploymentconfig:CodeDeployDefault.HalfAtATime",
-          "arn:aws:codedeploy:us-east-1:655716329164:deploymentconfig:CodeDeployDefault.AllAtOnce"
+          "arn:aws:codedeploy:us-east-1:${var.acc_id}:deploymentconfig:CodeDeployDefault.OneAtATime",
+          "arn:aws:codedeploy:us-east-1:${var.acc_id}:deploymentconfig:CodeDeployDefault.HalfAtATime",
+          "arn:aws:codedeploy:us-east-1:${var.acc_id}:deploymentconfig:CodeDeployDefault.AllAtOnce"
         ]
       }
     ]
@@ -437,13 +437,13 @@ resource "aws_instance" "ec2instance" {
   iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
   user_data = <<-EOF
          #!/bin/bash
-         echo "export aws_region=${var.aws_region}">> /home/ubuntu/.bashrc
-         echo "export s3_bucket_name=${var.aws_s3_bucket_name}">> /home/ubuntu/.bashrc
-         echo "export db_instance_username=${aws_db_instance.rds_instance.username}">> /home/ubuntu/.bashrc
-         echo "export db_instance_password=${var.aws_db_password}">> /home/ubuntu/.bashrc
-         echo "export ami_id=${data.aws_ami.ami.id}">> /home/ubuntu/.bashrc
-         echo "export db_instance_name=${var.aws_db_identifier}">> /home/ubuntu/.bashrc
-         echo "export db_instance_hostname=${aws_db_instance.rds_instance.address}">> /home/ubuntu/.bashrc
+         echo "export aws_region=${var.aws_region}" | sudo tee -a /etc/environment
+         echo "export s3_bucket_name=${var.aws_s3_bucket_name}" | sudo tee -a /etc/environment
+         echo "export db_instance_username=${aws_db_instance.rds_instance.username}" | sudo tee -a /etc/environment
+         echo "export db_instance_password=${var.aws_db_password}" | sudo tee -a /etc/environment
+         echo "export ami_id=${data.aws_ami.ami.id}" | sudo tee -a /etc/environment
+         echo "export db_instance_name=${var.aws_db_identifier}" | sudo tee -a /etc/environment
+         echo "export db_instance_hostname=${aws_db_instance.rds_instance.address}" | sudo tee -a /etc/environment
      EOF
 
      tags = {
