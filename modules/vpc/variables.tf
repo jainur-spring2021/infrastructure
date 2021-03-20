@@ -42,3 +42,11 @@ variable "aws_ami_owner"{
   default = "655716329164"
 }
 
+variable "code_deploy_S3_bucket"{
+  default = "codedeploy.api"
+}
+
+variable "acc_id"{
+  default = "205467980008"
+}
+
