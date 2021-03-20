@@ -192,8 +192,8 @@ resource "aws_iam_policy" "IAM_policy" {
                 "s3:GetObjectVersion"
             ],
             "Resource": [
-                "arn:aws:s3:::aws_s3_bucket.s3-csye-6225.bucket/*",
-                "arn:aws:s3:::aws_s3_bucket.s3-csye-6225.bucket"
+                "arn:aws:s3:::${aws_s3_bucket.s3-csye-6225.bucket}/*",
+                "arn:aws:s3:::${aws_s3_bucket.s3-csye-6225.bucket}"
             ]
         }
     ]

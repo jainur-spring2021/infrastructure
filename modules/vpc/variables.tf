@@ -27,7 +27,7 @@ variable "aws_route_gateway_destination_cidr_block"{
 }
 
 variable "aws_s3_bucket_name"{
-  default = "webapp.urvashi.jain"
+  default = "webapp.urvashi.jain.prod"
 }
 
 variable "aws_db_identifier"{
@@ -43,7 +43,7 @@ variable "aws_ami_owner"{
 }
 
 variable "code_deploy_S3_bucket"{
-  default = "codedeploy.api"
+  default = "codedeploy.api.prod"
 }
 
 variable "acc_id"{
