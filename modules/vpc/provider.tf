@@ -7,6 +7,7 @@ resource "aws_vpc" "csye6225_vpc" {
     instance_tenancy = "default"
     enable_dns_support = true
     enable_dns_hostnames = true
+    enable_classiclink_dns_support = true
     tags = {
         Name = var.aws_vpc_name
     }
@@ -247,53 +248,7 @@ resource "aws_iam_policy" "IAM_policy_GH_Upload_To_S3" {
   })
 }
 
-resource "aws_iam_policy" "IAM_policy_gh_ec2_ami" {
-  name = "GH-EC2-AMI"
-    policy = jsonencode({
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "ec2:AttachVolume",
-          "ec2:AuthorizeSecurityGroupIngress",
-          "ec2:CopyImage",
-          "ec2:CreateImage",
-          "ec2:CreateKeypair",
-          "ec2:CreateSecurityGroup",
-          "ec2:CreateSnapshot",
-          "ec2:CreateTags",
-          "ec2:CreateVolume",
-          "ec2:DeleteKeyPair",
-          "ec2:DeleteSecurityGroup",
-          "ec2:DeleteSnapshot",
-          "ec2:DeleteVolume",
-          "ec2:DeregisterImage",
-          "ec2:DescribeImageAttribute",
-          "ec2:DescribeImages",
-          "ec2:DescribeInstances",
-          "ec2:DescribeInstanceStatus",
-          "ec2:DescribeRegions",
-          "ec2:DescribeSecurityGroups",
-          "ec2:DescribeSnapshots",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeTags",
-          "ec2:DescribeVolumes",
-          "ec2:DetachVolume",
-          "ec2:GetPasswordData",
-          "ec2:ModifyImageAttribute",
-          "ec2:ModifyInstanceAttribute",
-          "ec2:ModifySnapshotAttribute",
-          "ec2:RegisterImage",
-          "ec2:RunInstances",
-          "ec2:StopInstances",
-          "ec2:TerminateInstances"
-        ],
-        "Resource": "*"
-      }
-    ]
-  })
-}
+
 
 resource "aws_iam_policy" "IAM_policy_GH_Code_Deploy" {
   name = "GH-Code-Deploy"
@@ -362,6 +317,11 @@ resource "aws_iam_role_policy_attachment" "IAM_policy_attachment1" {
   policy_arn = aws_iam_policy.IAM_policy_CodeDeploy_EC2_S3.arn
 }
 
+resource "aws_iam_role_policy_attachment" "IAM_policy_attachment2" {
+  role       = aws_iam_role.IAM_role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
 resource "aws_iam_role" "Code_Deploy_Service_Role" {
   name = "CodeDeployServiceRole"
   assume_role_policy = jsonencode({
@@ -419,6 +379,32 @@ resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
   deployment_style {
     deployment_type   = "IN_PLACE"
   }
+}
+
+data "aws_route53_zone" "hosted_zone" {
+  name         = var.aws_route53_zone_name
+}
+
+resource "aws_route53_record" "route53_record" {
+  zone_id = data.aws_route53_zone.hosted_zone.zone_id
+  name    = data.aws_route53_zone.hosted_zone.name
+  type    = "A"
+  ttl     = "300"
+  records = [aws_instance.ec2instance.public_ip]
+}
+
+data "aws_iam_user" "deploy-user" {
+  user_name = "ghactions"
+}
+
+resource "aws_iam_user_policy_attachment" "cicd-policy-attach" {
+  user       = data.aws_iam_user.deploy-user.user_name
+  policy_arn = aws_iam_policy.IAM_policy_GH_Upload_To_S3.arn
+}
+
+resource "aws_iam_user_policy_attachment" "cicd-policy-attach1" {
+  user       = data.aws_iam_user.deploy-user.user_name
+  policy_arn = aws_iam_policy.IAM_policy_GH_Code_Deploy.arn
 }
 
 resource "aws_instance" "ec2instance" {
