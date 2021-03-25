@@ -26,4 +26,7 @@ variable "aws_route_gateway_destination_cidr_block"{
   default = "0.0.0.0/0"
 }
 
+variable aws_route53_zone_name{
+
+}
 
