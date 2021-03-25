@@ -7,4 +7,5 @@ module "vpc1" {
     aws_subnet3_cidr = var.aws_subnet3_cidr
     aws_vpc_name = var.aws_vpc_name
     aws_route_gateway_destination_cidr_block = var.aws_route_gateway_destination_cidr_block
+    aws_route53_zone_name = var.aws_route53_zone_name
 }
