@@ -112,6 +112,24 @@ resource "aws_security_group" "database-security-group" {
   }
 }
 
+resource "aws_security_group" "ec2-security-group" {
+  description = "Allow traffic from load balancer"
+  vpc_id      = aws_vpc.csye6225_vpc.id
+
+  ingress {
+    description = "Load balancer"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    security_groups =  [aws_security_group.application-security-group.id]
+  }
+
+  tags = {
+    Name = "ec2_security_group"
+  }
+}
+
 resource "aws_kms_key" "encryption_key" {
   description             = "This key is used to encrypt bucket objects"
   deletion_window_in_days = 10
@@ -389,22 +407,11 @@ resource "aws_route53_record" "route53_record" {
   zone_id = data.aws_route53_zone.hosted_zone.zone_id
   name    = data.aws_route53_zone.hosted_zone.name
   type    = "A"
-  ttl     = "300"
   alias {
     name                   = aws_lb.load_balancer.dns_name
     zone_id                = aws_lb.load_balancer.zone_id
     evaluate_target_health = true
   }
-}
-
-resource "aws_route53_record" "cname_record" {
-  zone_id = data.aws_route53_zone.hosted_zone.zone_id
-  name    = data.aws_route53_zone.hosted_zone.name
-  type    = "CNAME"
-  ttl     = "5"
-
-  set_identifier = "http://dev.booksbuffet.me:3000/"
-  records        = ["http://booksbuffet.me:3000/"]
 }
 
 data "aws_iam_user" "deploy-user" {
@@ -477,19 +484,22 @@ resource "aws_autoscaling_group" "autoscaling_group" {
   min_size             = 3
   max_size             = 5
   default_cooldown     = 60
-  tags {
+  tag {
     key   = "Name"
-    PropagateAtLaunch = true,
+    propagate_at_launch = true
     value = "Code Deploy Instance"
   }
-  load_balancers = [aws_lb.load_balancer.name]
+  target_group_arns   = [aws_lb_target_group.target_group.arn]
+  # availability_zones  = [data.aws_availability_zones.available_zones.names[0]]
+  vpc_zone_identifier = [aws_subnet.subnet1.id, aws_subnet.subnet2.id, aws_subnet.subnet3.id]
+  health_check_grace_period = 900
 }
 
 resource "aws_autoscaling_policy" "scale_up" {
   name                   = "scale_up"
   scaling_adjustment     = 1
   adjustment_type        = "ChangeInCapacity"
-  cooldown               = 300
+  cooldown               = 60
   autoscaling_group_name = aws_autoscaling_group.autoscaling_group.name
 }
 
@@ -497,64 +507,78 @@ resource "aws_autoscaling_policy" "scale_down" {
   name                   = "scale_down"
   scaling_adjustment     = -1
   adjustment_type        = "ChangeInCapacity"
-  cooldown               = 300
+  cooldown               = 60
   autoscaling_group_name = aws_autoscaling_group.autoscaling_group.name
 }
 
 resource "aws_cloudwatch_metric_alarm" "CPUAlarmHigh" {
   alarm_name          = "CPUAlarmHigh"
   comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = "2"
+  evaluation_periods  = 2
   metric_name         = "CPUUtilization"
   namespace           = "AWS/EC2"
-  period              = "300"
+  period              = 60
   statistic           = "Average"
-  threshold           = "05"
+  threshold           = 05
 
   dimensions = {
     AutoScalingGroupName = aws_autoscaling_group.autoscaling_group.name
   }
 
-  alarm_description = "Scale-down if CPU > 5% for 5 minutes"
+  alarm_description = "Scale-up if CPU > 5% for 1 minutes"
   alarm_actions     = [aws_autoscaling_policy.scale_up.arn]
 }
 
 resource "aws_cloudwatch_metric_alarm" "CPUAlarmLow" {
   alarm_name          = "CPUAlarmLow"
   comparison_operator = "LessThanThreshold"
-  evaluation_periods  = "2"
+  evaluation_periods  = 2
   metric_name         = "CPUUtilization"
   namespace           = "AWS/EC2"
-  period              = "300"
+  period              = 60
   statistic           = "Average"
-  threshold           = "03"
+  threshold           = 03
 
   dimensions = {
     AutoScalingGroupName = aws_autoscaling_group.autoscaling_group.name
   }
 
-  alarm_description = "Scale-down if CPU < 3% for 5 minutes"
+  alarm_description = "Scale-down if CPU < 3% for 1 minutes"
   alarm_actions     = [aws_autoscaling_policy.scale_down.arn]
 }
 
 resource "aws_lb" "load_balancer" {
-  name               = "load_balancer"
+  name               = "loadBalancer"
   internal           = false
   load_balancer_type = "application"
   subnets            = [aws_subnet.subnet1.id,aws_subnet.subnet2.id,aws_subnet.subnet3.id]
   ip_address_type    = "ipv4"
-  enable_deletion_protection = true
-  zone_id = data.aws_availability_zones.available_zones.names[0]
   security_groups = [aws_security_group.application-security-group.id]
 }
 
 resource "aws_lb_target_group" "target_group" {
-  name     = "target_group"
-  port     = 80
+  name     = "targetGroup"
+  port     = 3000
   protocol = "HTTP"
   vpc_id   = aws_vpc.csye6225_vpc.id
   health_check {
+    enabled  = true
+    interval = 10
+    path = "/health"
+    port = 3000
+    protocol = "HTTP"
+    matcher = 200
+  }
+}
 
+resource "aws_lb_listener" "listener" {
+  load_balancer_arn = aws_lb.load_balancer.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.target_group.arn
   }
 }
 
