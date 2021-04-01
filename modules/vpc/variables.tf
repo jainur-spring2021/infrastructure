@@ -43,7 +43,7 @@ variable "aws_ami_owner"{
 }
 
 variable "code_deploy_S3_bucket"{
-  default = "codedeploy.api.dev"
+  default = "codedeploy.api"
 }
 
 variable "acc_id"{

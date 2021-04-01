@@ -112,6 +112,24 @@ resource "aws_security_group" "database-security-group" {
   }
 }
 
+resource "aws_security_group" "ec2-security-group" {
+  description = "Allow traffic from load balancer"
+  vpc_id      = aws_vpc.csye6225_vpc.id
+
+  ingress {
+    description = "Load balancer"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    security_groups =  [aws_security_group.application-security-group.id]
+  }
+
+  tags = {
+    Name = "ec2_security_group"
+  }
+}
+
 resource "aws_kms_key" "encryption_key" {
   description             = "This key is used to encrypt bucket objects"
   deletion_window_in_days = 10
@@ -361,7 +379,7 @@ resource "aws_codedeploy_app" "code_deploy_app" {
 
 resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
   app_name               = aws_codedeploy_app.code_deploy_app.name
-  deployment_config_name = "CodeDeployDefault.AllAtOnce"
+  deployment_config_name = "CodeDeployDefault.OneAtATime"
   deployment_group_name  = "csye6225-webapp-deployment"
   service_role_arn       = aws_iam_role.Code_Deploy_Service_Role.arn
 
@@ -389,8 +407,11 @@ resource "aws_route53_record" "route53_record" {
   zone_id = data.aws_route53_zone.hosted_zone.zone_id
   name    = data.aws_route53_zone.hosted_zone.name
   type    = "A"
-  ttl     = "300"
-  records = [aws_instance.ec2instance.public_ip]
+  alias {
+    name                   = aws_lb.load_balancer.dns_name
+    zone_id                = aws_lb.load_balancer.zone_id
+    evaluate_target_health = true
+  }
 }
 
 data "aws_iam_user" "deploy-user" {
@@ -407,20 +428,44 @@ resource "aws_iam_user_policy_attachment" "cicd-policy-attach1" {
   policy_arn = aws_iam_policy.IAM_policy_GH_Code_Deploy.arn
 }
 
-resource "aws_instance" "ec2instance" {
-  ami = data.aws_ami.ami.id
+# resource "aws_instance" "ec2instance" {
+  # ami = data.aws_ami.ami.id
+  # instance_type = "t2.micro"
+  # key_name = "csye6225"
+  # vpc_security_group_ids = [aws_security_group.application-security-group.id]
+  # subnet_id = aws_subnet.subnet1.id
+  # associate_public_ip_address = true
+  # root_block_device {
+      # volume_type = "gp2"
+      # volume_size = 20
+      # delete_on_termination = true
+  # }
+  # depends_on = [aws_db_instance.rds_instance]
+  # iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
+  # user_data = <<-EOF
+         #!/bin/bash
+         # echo "export aws_region=${var.aws_region}" | sudo tee -a /etc/environment
+         # echo "export s3_bucket_name=${var.aws_s3_bucket_name}" | sudo tee -a /etc/environment
+         # echo "export db_instance_username=${aws_db_instance.rds_instance.username}" | sudo tee -a /etc/environment
+         # echo "export db_instance_password=${var.aws_db_password}" | sudo tee -a /etc/environment
+         # echo "export ami_id=${data.aws_ami.ami.id}" | sudo tee -a /etc/environment
+         # echo "export db_instance_name=${var.aws_db_identifier}" | sudo tee -a /etc/environment
+         # echo "export db_instance_hostname=${aws_db_instance.rds_instance.address}" | sudo tee -a /etc/environment
+     # EOF
+
+     # tags = {
+       # Name = "Code Deploy Instance"
+     # }
+# }
+
+resource "aws_launch_configuration" "launch_config" {
+  name = "asg_launch_config"
+  image_id      = data.aws_ami.ami.id
   instance_type = "t2.micro"
-  key_name = "csye6225"
-  vpc_security_group_ids = [aws_security_group.application-security-group.id]
-  subnet_id = aws_subnet.subnet1.id
-  associate_public_ip_address = true
-  root_block_device {
-      volume_type = "gp2"
-      volume_size = 20
-      delete_on_termination = true
-  }
-  depends_on = [aws_db_instance.rds_instance]
   iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
+  associate_public_ip_address = true
+  key_name = "csye6225"
+  security_groups = [aws_security_group.application-security-group.id]
   user_data = <<-EOF
          #!/bin/bash
          echo "export aws_region=${var.aws_region}" | sudo tee -a /etc/environment
@@ -430,10 +475,110 @@ resource "aws_instance" "ec2instance" {
          echo "export ami_id=${data.aws_ami.ami.id}" | sudo tee -a /etc/environment
          echo "export db_instance_name=${var.aws_db_identifier}" | sudo tee -a /etc/environment
          echo "export db_instance_hostname=${aws_db_instance.rds_instance.address}" | sudo tee -a /etc/environment
-     EOF
+    EOF
+}
 
-     tags = {
-       Name = "Code Deploy Instance"
-     }
+resource "aws_autoscaling_group" "autoscaling_group" {
+  name                 = "autoscaling_group"
+  launch_configuration = aws_launch_configuration.launch_config.name
+  min_size             = 3
+  max_size             = 5
+  default_cooldown     = 60
+  tag {
+    key   = "Name"
+    propagate_at_launch = true
+    value = "Code Deploy Instance"
+  }
+  target_group_arns   = [aws_lb_target_group.target_group.arn]
+  # availability_zones  = [data.aws_availability_zones.available_zones.names[0]]
+  vpc_zone_identifier = [aws_subnet.subnet1.id, aws_subnet.subnet2.id, aws_subnet.subnet3.id]
+  health_check_grace_period = 900
+}
+
+resource "aws_autoscaling_policy" "scale_up" {
+  name                   = "scale_up"
+  scaling_adjustment     = 1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 60
+  autoscaling_group_name = aws_autoscaling_group.autoscaling_group.name
+}
+
+resource "aws_autoscaling_policy" "scale_down" {
+  name                   = "scale_down"
+  scaling_adjustment     = -1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 60
+  autoscaling_group_name = aws_autoscaling_group.autoscaling_group.name
+}
+
+resource "aws_cloudwatch_metric_alarm" "CPUAlarmHigh" {
+  alarm_name          = "CPUAlarmHigh"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 05
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.autoscaling_group.name
+  }
+
+  alarm_description = "Scale-up if CPU > 5% for 1 minutes"
+  alarm_actions     = [aws_autoscaling_policy.scale_up.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "CPUAlarmLow" {
+  alarm_name          = "CPUAlarmLow"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 03
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.autoscaling_group.name
+  }
+
+  alarm_description = "Scale-down if CPU < 3% for 1 minutes"
+  alarm_actions     = [aws_autoscaling_policy.scale_down.arn]
+}
+
+resource "aws_lb" "load_balancer" {
+  name               = "loadBalancer"
+  internal           = false
+  load_balancer_type = "application"
+  subnets            = [aws_subnet.subnet1.id,aws_subnet.subnet2.id,aws_subnet.subnet3.id]
+  ip_address_type    = "ipv4"
+  security_groups = [aws_security_group.application-security-group.id]
+}
+
+resource "aws_lb_target_group" "target_group" {
+  name     = "targetGroup"
+  port     = 3000
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.csye6225_vpc.id
+  health_check {
+    enabled  = true
+    interval = 10
+    path = "/health"
+    port = 3000
+    protocol = "HTTP"
+    matcher = 200
+  }
+}
+
+resource "aws_lb_listener" "listener" {
+  load_balancer_arn = aws_lb.load_balancer.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.target_group.arn
+  }
 }
 
