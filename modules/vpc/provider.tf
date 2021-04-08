@@ -356,6 +356,11 @@ resource "aws_iam_role_policy_attachment" "IAM_policy_attachment2" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
+resource "aws_iam_role_policy_attachment" "IAM_policy_attachment3" {
+  role       = aws_iam_role.IAM_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSNSFullAccess"
+}
+
 resource "aws_iam_role" "Code_Deploy_Service_Role" {
   name = "CodeDeployServiceRole"
   assume_role_policy = jsonencode({
@@ -451,6 +456,59 @@ resource "aws_iam_user_policy_attachment" "cicd-policy-attach1" {
   policy_arn = aws_iam_policy.IAM_policy_GH_Code_Deploy.arn
 }
 
+resource "aws_iam_policy" "lambda_codedeploy_policy" {
+  name = "lambda_codedeploy_policy"
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "lambda:CreateFunction",
+                "lambda:UpdateFunctionEventInvokeConfig",
+                "lambda:TagResource",
+                "lambda:UpdateEventSourceMapping",
+                "lambda:InvokeFunction",
+                "lambda:PublishLayerVersion",
+                "lambda:DeleteProvisionedConcurrencyConfig",
+                "lambda:UpdateFunctionConfiguration",
+                "lambda:InvokeAsync",
+                "lambda:UntagResource",
+                "lambda:PutFunctionConcurrency",
+                "lambda:UpdateAlias",
+                "lambda:UpdateFunctionCode",
+                "lambda:DeleteLayerVersion",
+                "lambda:PutProvisionedConcurrencyConfig",
+                "lambda:DeleteAlias",
+                "lambda:PutFunctionEventInvokeConfig",
+                "lambda:DeleteFunctionEventInvokeConfig",
+                "lambda:DeleteFunction",
+                "lambda:PublishVersion",
+                "lambda:DeleteFunctionConcurrency",
+                "lambda:DeleteEventSourceMapping",
+                "lambda:CreateAlias"
+            ],
+            "Resource": "arn:aws:lambda:${var.aws_region}:${var.acc_id}:function:${aws_lambda_function.send_email.function_name}"
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": [
+                "lambda:UpdateFunctionCode",
+                "lambda:CreateEventSourceMapping"
+            ],
+            "Resource": "arn:aws:lambda:${var.aws_region}:${var.acc_id}:function:${aws_lambda_function.send_email.function_name}"
+        }
+    ]
+  })
+}
+
+resource "aws_iam_user_policy_attachment" "cicd-policy-attach2" {
+  user       = data.aws_iam_user.deploy-user.user_name
+  policy_arn = aws_iam_policy.lambda_codedeploy_policy.arn
+}
+
 # resource "aws_instance" "ec2instance" {
   # ami = data.aws_ami.ami.id
   # instance_type = "t2.micro"
@@ -501,6 +559,7 @@ resource "aws_launch_configuration" "launch_config" {
          echo "export ami_id=${data.aws_ami.ami.id}" | sudo tee -a /etc/environment
          echo "export db_instance_name=${var.aws_db_identifier}" | sudo tee -a /etc/environment
          echo "export db_instance_hostname=${aws_db_instance.rds_instance.address}" | sudo tee -a /etc/environment
+         echo "export topic_arn=${aws_sns_topic.notifications.arn}" | sudo tee -a /etc/environment
     EOF
 }
 
@@ -609,3 +668,55 @@ resource "aws_lb_listener" "listener" {
   }
 }
 
+resource "aws_sns_topic" "notifications" {
+  name = "user-notifications-topic"
+}
+
+resource "aws_iam_role" "lambda_role" {
+  name = "lambda_role"
+  assume_role_policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "Service": "lambda.amazonaws.com"
+        },
+        "Effect": "Allow",
+        "Sid": ""
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_role_policies" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_role_policies1" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSESFullAccess"
+}
+
+resource "aws_lambda_function" "send_email" {
+  filename      = "send-email.zip"
+  function_name = "send-email"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "send-email.handler"
+  runtime = "nodejs14.x"
+}
+
+resource "aws_sns_topic_subscription" "subscription" {
+  topic_arn = aws_sns_topic.notifications.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.send_email.arn
+}
+
+resource "aws_lambda_permission" "invoke_lambda_through_SNS" {
+  statement_id  = "AllowExecutionFromSNS"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.send_email.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.notifications.arn
+}
