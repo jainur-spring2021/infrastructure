@@ -45,17 +45,10 @@ resource "aws_route" "gateway_route" {
   gateway_id = aws_internet_gateway.csye6225_internet_gateway.id
 }
 
-resource "aws_security_group" "application-security-group" {
+resource "aws_security_group" "lb-security-group" {
   description = "Allow TCP traffic on ports 22, 80, 43, 3000"
   vpc_id      = aws_vpc.csye6225_vpc.id
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
   ingress {
     description = "HTTP"
@@ -90,7 +83,7 @@ resource "aws_security_group" "application-security-group" {
   }
 
   tags = {
-    Name = "application"
+    Name = "load balancer"
   }
 }
 
@@ -104,7 +97,7 @@ resource "aws_security_group" "database-security-group" {
     to_port     = 3306
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    security_groups =  [aws_security_group.application-security-group.id]
+    security_groups =  [aws_security_group.ec2-security-group.id]
   }
 
   tags = {
@@ -117,12 +110,35 @@ resource "aws_security_group" "ec2-security-group" {
   vpc_id      = aws_vpc.csye6225_vpc.id
 
   ingress {
-    description = "Load balancer"
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    security_groups = [aws_security_group.lb-security-group.id]
+  }
+
+  ingress {
+    description = "Node Server"
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
+    security_groups = [aws_security_group.lb-security-group.id]
+  }
+
+  egress {
+    description = "Egress rule"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
-    security_groups =  [aws_security_group.application-security-group.id]
   }
 
   tags = {
@@ -340,6 +356,11 @@ resource "aws_iam_role_policy_attachment" "IAM_policy_attachment2" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
+resource "aws_iam_role_policy_attachment" "IAM_policy_attachment3" {
+  role       = aws_iam_role.IAM_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSNSFullAccess"
+}
+
 resource "aws_iam_role" "Code_Deploy_Service_Role" {
   name = "CodeDeployServiceRole"
   assume_role_policy = jsonencode({
@@ -382,7 +403,7 @@ resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
   deployment_config_name = "CodeDeployDefault.OneAtATime"
   deployment_group_name  = "csye6225-webapp-deployment"
   service_role_arn       = aws_iam_role.Code_Deploy_Service_Role.arn
-
+  autoscaling_groups = [aws_autoscaling_group.autoscaling_group.name]
   ec2_tag_filter {
     key   = "Name"
     type  = "KEY_AND_VALUE"
@@ -396,6 +417,13 @@ resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
 
   deployment_style {
     deployment_type   = "IN_PLACE"
+    deployment_option = "WITH_TRAFFIC_CONTROL"
+  }
+
+  load_balancer_info {
+    target_group_info {
+        name = aws_lb_target_group.target_group.name
+    }
   }
 }
 
@@ -426,6 +454,59 @@ resource "aws_iam_user_policy_attachment" "cicd-policy-attach" {
 resource "aws_iam_user_policy_attachment" "cicd-policy-attach1" {
   user       = data.aws_iam_user.deploy-user.user_name
   policy_arn = aws_iam_policy.IAM_policy_GH_Code_Deploy.arn
+}
+
+resource "aws_iam_policy" "lambda_codedeploy_policy" {
+  name = "lambda_codedeploy_policy"
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "lambda:CreateFunction",
+                "lambda:UpdateFunctionEventInvokeConfig",
+                "lambda:TagResource",
+                "lambda:UpdateEventSourceMapping",
+                "lambda:InvokeFunction",
+                "lambda:PublishLayerVersion",
+                "lambda:DeleteProvisionedConcurrencyConfig",
+                "lambda:UpdateFunctionConfiguration",
+                "lambda:InvokeAsync",
+                "lambda:UntagResource",
+                "lambda:PutFunctionConcurrency",
+                "lambda:UpdateAlias",
+                "lambda:UpdateFunctionCode",
+                "lambda:DeleteLayerVersion",
+                "lambda:PutProvisionedConcurrencyConfig",
+                "lambda:DeleteAlias",
+                "lambda:PutFunctionEventInvokeConfig",
+                "lambda:DeleteFunctionEventInvokeConfig",
+                "lambda:DeleteFunction",
+                "lambda:PublishVersion",
+                "lambda:DeleteFunctionConcurrency",
+                "lambda:DeleteEventSourceMapping",
+                "lambda:CreateAlias"
+            ],
+            "Resource": "arn:aws:lambda:${var.aws_region}:${var.acc_id}:function:${aws_lambda_function.send_email.function_name}"
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": [
+                "lambda:UpdateFunctionCode",
+                "lambda:CreateEventSourceMapping"
+            ],
+            "Resource": "arn:aws:lambda:${var.aws_region}:${var.acc_id}:function:${aws_lambda_function.send_email.function_name}"
+        }
+    ]
+  })
+}
+
+resource "aws_iam_user_policy_attachment" "cicd-policy-attach2" {
+  user       = data.aws_iam_user.deploy-user.user_name
+  policy_arn = aws_iam_policy.lambda_codedeploy_policy.arn
 }
 
 # resource "aws_instance" "ec2instance" {
@@ -465,9 +546,12 @@ resource "aws_launch_configuration" "launch_config" {
   iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
   associate_public_ip_address = true
   key_name = "csye6225"
-  security_groups = [aws_security_group.application-security-group.id]
+  security_groups = [aws_security_group.ec2-security-group.id]
   user_data = <<-EOF
          #!/bin/bash
+         apt-get install -y apache2
+         systemctl start apache2
+         systemctl enable apache2
          echo "export aws_region=${var.aws_region}" | sudo tee -a /etc/environment
          echo "export s3_bucket_name=${var.aws_s3_bucket_name}" | sudo tee -a /etc/environment
          echo "export db_instance_username=${aws_db_instance.rds_instance.username}" | sudo tee -a /etc/environment
@@ -475,6 +559,7 @@ resource "aws_launch_configuration" "launch_config" {
          echo "export ami_id=${data.aws_ami.ami.id}" | sudo tee -a /etc/environment
          echo "export db_instance_name=${var.aws_db_identifier}" | sudo tee -a /etc/environment
          echo "export db_instance_hostname=${aws_db_instance.rds_instance.address}" | sudo tee -a /etc/environment
+         echo "export topic_arn=${aws_sns_topic.notifications.arn}" | sudo tee -a /etc/environment
     EOF
 }
 
@@ -535,7 +620,7 @@ resource "aws_cloudwatch_metric_alarm" "CPUAlarmLow" {
   evaluation_periods  = 2
   metric_name         = "CPUUtilization"
   namespace           = "AWS/EC2"
-  period              = 60
+  period              = 300
   statistic           = "Average"
   threshold           = 03
 
@@ -543,7 +628,7 @@ resource "aws_cloudwatch_metric_alarm" "CPUAlarmLow" {
     AutoScalingGroupName = aws_autoscaling_group.autoscaling_group.name
   }
 
-  alarm_description = "Scale-down if CPU < 3% for 1 minutes"
+  alarm_description = "Scale-down if CPU < 3% for 5 minutes"
   alarm_actions     = [aws_autoscaling_policy.scale_down.arn]
 }
 
@@ -553,7 +638,7 @@ resource "aws_lb" "load_balancer" {
   load_balancer_type = "application"
   subnets            = [aws_subnet.subnet1.id,aws_subnet.subnet2.id,aws_subnet.subnet3.id]
   ip_address_type    = "ipv4"
-  security_groups = [aws_security_group.application-security-group.id]
+  security_groups = [aws_security_group.lb-security-group.id]
 }
 
 resource "aws_lb_target_group" "target_group" {
@@ -563,11 +648,12 @@ resource "aws_lb_target_group" "target_group" {
   vpc_id   = aws_vpc.csye6225_vpc.id
   health_check {
     enabled  = true
-    interval = 10
-    path = "/health"
-    port = 3000
+    interval = 30
+    path = "/"
     protocol = "HTTP"
-    matcher = 200
+    port = 80
+    healthy_threshold = 3
+    unhealthy_threshold = 5 
   }
 }
 
@@ -582,3 +668,55 @@ resource "aws_lb_listener" "listener" {
   }
 }
 
+resource "aws_sns_topic" "notifications" {
+  name = "user-notifications-topic"
+}
+
+resource "aws_iam_role" "lambda_role" {
+  name = "lambda_role"
+  assume_role_policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "Service": "lambda.amazonaws.com"
+        },
+        "Effect": "Allow",
+        "Sid": ""
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_role_policies" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_role_policies1" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSESFullAccess"
+}
+
+resource "aws_lambda_function" "send_email" {
+  filename      = "send-email.zip"
+  function_name = "send-email"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "send-email.handler"
+  runtime = "nodejs14.x"
+}
+
+resource "aws_sns_topic_subscription" "subscription" {
+  topic_arn = aws_sns_topic.notifications.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.send_email.arn
+}
+
+resource "aws_lambda_permission" "invoke_lambda_through_SNS" {
+  statement_id  = "AllowExecutionFromSNS"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.send_email.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.notifications.arn
+}
