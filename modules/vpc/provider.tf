@@ -183,6 +183,16 @@ resource "aws_db_subnet_group" "rds_subnet_group" {
   }
 }
 
+resource "aws_kms_key" "rds_encryption" {
+  description             = "KMS key for RDS"
+  key_usage               = "ENCRYPT_DECRYPT"
+  policy                  = "${file("policy.json")}"
+  is_enabled              = true
+  tags = {
+    "Name" = "KMS for RDS"
+  }
+}
+
 resource "aws_db_instance" "rds_instance" {
   identifier = var.aws_db_identifier
   allocated_storage    = 20
@@ -547,6 +557,13 @@ resource "aws_launch_configuration" "launch_config" {
   associate_public_ip_address = true
   key_name = "csye6225"
   security_groups = [aws_security_group.ec2-security-group.id]
+  root_block_device {
+    volume_type = "gp2"
+    volume_size = 20
+    delete_on_termination = true
+    encrypted = true
+  }
+  depends_on = [aws_db_instance.rds_instance]
   user_data = <<-EOF
          #!/bin/bash
          apt-get install -y apache2
@@ -659,9 +676,10 @@ resource "aws_lb_target_group" "target_group" {
 
 resource "aws_lb_listener" "listener" {
   load_balancer_arn = aws_lb.load_balancer.arn
-  port              = 80
-  protocol          = "HTTP"
-
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = "arn:aws:acm:us-east-1:205467980008:certificate/f3e1e4b3-b692-4f9d-877d-acb16a09be99"
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.target_group.arn
